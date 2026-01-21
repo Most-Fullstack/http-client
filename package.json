@@ -23,7 +23,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepare": "npm run build"
   },
   "keywords": [
     "http",
@@ -31,11 +32,9 @@
     "axios",
     "api",
     "transaction-id",
-    "tracing",
-    "opentelemetry",
-    "otel"
+    "tracing"
   ],
-  "author": "Most Fullstack",
+  "author": "My Organization",
   "license": "MIT",
   "peerDependencies": {
     "axios": "^1.6.0"
@@ -43,13 +42,13 @@
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/uuid": "^9.0.7",
-    "@vitest/coverage-v8": "^1.6.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "axios": "^1.6.0",
     "axios-mock-adapter": "^1.22.0",
     "tsup": "^8.0.0",
     "typescript": "^5.3.0",
     "uuid": "^9.0.0",
-    "vitest": "^1.6.0"
+    "vitest": "^1.0.0"
   },
   "dependencies": {
     "uuid": "^9.0.0"
@@ -60,9 +59,5 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Most-Fullstack/http-client.git"
-  },
-  "bugs": {
-    "url": "https://github.com/Most-Fullstack/http-client/issues"
-  },
-  "homepage": "https://github.com/Most-Fullstack/http-client#readme"
+  }
 }
