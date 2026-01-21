@@ -1,0 +1,68 @@
+{
+  "name": "@my-org/http-client",
+  "version": "1.0.0",
+  "description": "Framework-agnostic HTTP client with automatic transaction tracing and dependency injection",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup index.ts --format cjs,esm --dts --watch",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "http",
+    "client",
+    "axios",
+    "api",
+    "transaction-id",
+    "tracing",
+    "opentelemetry",
+    "otel"
+  ],
+  "author": "Most Fullstack",
+  "license": "MIT",
+  "peerDependencies": {
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/uuid": "^9.0.7",
+    "@vitest/coverage-v8": "^1.6.0",
+    "axios": "^1.6.0",
+    "axios-mock-adapter": "^1.22.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "uuid": "^9.0.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "uuid": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Most-Fullstack/http-client.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Most-Fullstack/http-client/issues"
+  },
+  "homepage": "https://github.com/Most-Fullstack/http-client#readme"
+}
