@@ -7,14 +7,10 @@ import axios, {
 } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
-// ============================================================================
-// OPENTELEMETRY INTEGRATION (Optional)
-// ============================================================================
+// =============================================================================
+// OpenTelemetry Integration (Optional)
+// =============================================================================
 
-/**
- * OpenTelemetry API types (optional peer dependency)
- * These match @opentelemetry/api interfaces
- */
 interface OTelSpanContext {
   traceId: string;
   spanId: string;
@@ -25,9 +21,7 @@ interface OTelSpan {
   spanContext(): OTelSpanContext;
 }
 
-interface OTelContext {
-  // Context interface
-}
+interface OTelContext {}
 
 interface OTelTraceAPI {
   getSpan(context: OTelContext): OTelSpan | undefined;
@@ -43,39 +37,34 @@ interface OTelAPI {
 }
 
 /**
- * Try to get OpenTelemetry API if available
- * Returns undefined if @opentelemetry/api is not installed
+ * Attempts to load @opentelemetry/api if available.
+ * Returns undefined if not installed - library works without it.
  */
 function getOTelAPI(): OTelAPI | undefined {
-  // Check if running in an environment that supports require
   if (typeof globalThis !== 'undefined' && (globalThis as any).__otel_api) {
     return (globalThis as any).__otel_api as OTelAPI;
   }
-  
+
   try {
-    // Dynamic require to avoid hard dependency
-    // This will be tree-shaken in browser builds if not used
     const requireFunc = typeof require !== 'undefined' ? require : undefined;
     if (requireFunc) {
-      const otel = requireFunc('@opentelemetry/api');
-      return otel as OTelAPI;
+      return requireFunc('@opentelemetry/api') as OTelAPI;
     }
   } catch {
-    // @opentelemetry/api not installed, which is fine
+    // @opentelemetry/api not installed
   }
-  
+
   return undefined;
 }
 
 /**
- * Generate a random hex string of specified length
+ * Generates cryptographically random hex string.
  */
 function randomHex(length: number): string {
   const bytes = new Uint8Array(length / 2);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     crypto.getRandomValues(bytes);
   } else {
-    // Fallback for non-browser environments
     for (let i = 0; i < bytes.length; i++) {
       bytes[i] = Math.floor(Math.random() * 256);
     }
@@ -84,15 +73,14 @@ function randomHex(length: number): string {
 }
 
 /**
- * Generate W3C Trace Context traceparent header
- * Format: {version}-{trace-id}-{parent-id}-{flags}
- * Example: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
+ * Generates W3C Trace Context traceparent header.
+ * @see https://www.w3.org/TR/trace-context/
  */
 function generateTraceparent(): { traceparent: string; traceId: string } {
   const version = '00';
-  const traceId = randomHex(32); // 16 bytes = 32 hex chars
-  const parentId = randomHex(16); // 8 bytes = 16 hex chars
-  const flags = '01'; // sampled
+  const traceId = randomHex(32);
+  const parentId = randomHex(16);
+  const flags = '01';
 
   return {
     traceparent: `${version}-${traceId}-${parentId}-${flags}`,
@@ -100,95 +88,96 @@ function generateTraceparent(): { traceparent: string; traceId: string } {
   };
 }
 
-// ============================================================================
-// TYPES & INTERFACES
-// ============================================================================
+// =============================================================================
+// Types & Interfaces
+// =============================================================================
 
 /**
- * Hook type for injecting application-specific interceptors.
- * Use this to add auth tokens, locale headers, error handling, etc.
+ * Callback for injecting application-specific interceptors.
  */
 export type InterceptorSetup = (instance: AxiosInstance) => void;
 
 /**
- * Configuration options for BaseAPIService
+ * Configuration options for BaseAPIService.
  */
 export interface BaseAPIServiceConfig {
-  /** Axios request configuration (baseURL, timeout, headers, etc.) */
+  /** Axios configuration (baseURL, timeout, headers, etc.) */
   axiosConfig: AxiosRequestConfig;
-  /** Optional hook to inject app-specific interceptors (auth, i18n, etc.) */
+
+  /** Callback to inject custom interceptors (auth, i18n, error handling) */
   setupHooks?: InterceptorSetup;
-  /** Custom Transaction ID header name (default: 'X-Transaction-ID') */
+
+  /** Transaction ID header name. Default: 'X-Transaction-ID' */
   transactionIdHeader?: string;
+
   /** Disable automatic Transaction ID injection */
   disableTransactionId?: boolean;
-  /**
-   * Enable W3C Trace Context propagation for OpenTelemetry
-   * When enabled, injects 'traceparent' header for distributed tracing
-   * Compatible with otelgo and other OTel implementations
-   */
+
+  /** Enable W3C Trace Context (traceparent header) for distributed tracing */
   enableTraceContext?: boolean;
-  /**
-   * Use OTel trace ID as Transaction ID when available
-   * This correlates logs with traces in Grafana (Loki → Tempo)
-   */
+
+  /** Use trace ID as Transaction ID for log-trace correlation */
   useTraceIdAsTransactionId?: boolean;
-  /**
-   * Service name for trace identification (e.g., 'FRONTEND')
-   * When set, injects 'X-Source-Service' header so backend can create
-   * a parent span representing the frontend in distributed traces
-   */
+
+  /** Service name for frontend identification in traces */
   serviceName?: string;
 }
 
 /**
- * Options for individual requests
+ * Options for individual HTTP requests.
  */
 export interface RequestOptions {
   /** Query parameters */
   params?: Record<string, any>;
-  /** Additional headers for this request only */
+
+  /** Additional headers */
   headers?: Record<string, string>;
-  /** Override timeout for this request */
+
+  /** Request timeout in milliseconds */
   timeout?: number;
-  /** Abort signal for request cancellation */
+
+  /** AbortSignal for request cancellation */
   signal?: AbortSignal;
 }
 
 /**
- * Options for file upload requests
+ * Options for file upload requests.
  */
 export interface UploadOptions extends RequestOptions {
   /** Upload progress callback */
   onUploadProgress?: (progressEvent: AxiosProgressEvent) => void;
 }
 
-// ============================================================================
-// CORE SERVICE CLASS
-// ============================================================================
+// =============================================================================
+// BaseAPIService
+// =============================================================================
 
 /**
- * BaseAPIService - Framework-agnostic HTTP client wrapper
+ * Framework-agnostic HTTP client with automatic tracing support.
  *
- * Features:
- * - Automatic Transaction ID injection for request tracing
- * - Flexible generics (no enforced response shape)
- * - Dependency injection for app-specific interceptors
- * - TypeScript-first with full type safety
- *
- * @example
+ * @example Basic usage
  * ```typescript
- * const api = new BaseAPIService({
- *   axiosConfig: { baseURL: 'https://api.example.com', timeout: 10000 },
+ * const api = createHttpClient({
+ *   axiosConfig: { baseURL: 'https://api.example.com' },
+ * });
+ *
+ * const users = await api.get<User[]>('/users');
+ * ```
+ *
+ * @example With OpenTelemetry integration
+ * ```typescript
+ * const api = createHttpClient({
+ *   axiosConfig: { baseURL: '/api' },
+ *   enableTraceContext: true,
+ *   useTraceIdAsTransactionId: true,
+ *   serviceName: 'MY-FRONTEND',
  *   setupHooks: (instance) => {
  *     instance.interceptors.request.use((config) => {
  *       config.headers.Authorization = `Bearer ${getToken()}`;
  *       return config;
  *     });
- *   }
+ *   },
  * });
- *
- * const users = await api.get<User[]>('/users');
  * ```
  */
 export class BaseAPIService {
@@ -196,13 +185,12 @@ export class BaseAPIService {
   private readonly transactionIdHeader: string;
 
   constructor(config: BaseAPIServiceConfig);
-  /** @deprecated Use object config. Will be removed in v2.0 */
+  /** @deprecated Use object config instead. Will be removed in v2.0 */
   constructor(axiosConfig: AxiosRequestConfig, setupHooks?: InterceptorSetup);
   constructor(
     configOrAxios: BaseAPIServiceConfig | AxiosRequestConfig,
     setupHooks?: InterceptorSetup
   ) {
-    // Handle both new object config and legacy positional args
     const isLegacyCall = !('axiosConfig' in configOrAxios);
     const resolvedConfig: BaseAPIServiceConfig = isLegacyCall
       ? { axiosConfig: configOrAxios, setupHooks }
@@ -222,12 +210,11 @@ export class BaseAPIService {
     this.instance = axios.create(axiosConfig);
 
     // -------------------------------------------------------------------------
-    // CORE INTERCEPTORS
+    // Request Interceptor: Tracing Headers
     // -------------------------------------------------------------------------
+    const shouldAddInterceptor =
+      !disableTransactionId || enableTraceContext || !!serviceName;
 
-    // A. Inject Transaction ID, Trace Context, and/or Service Name
-    const shouldAddInterceptor = !disableTransactionId || enableTraceContext || !!serviceName;
-    
     if (shouldAddInterceptor) {
       const otel = getOTelAPI();
 
@@ -237,7 +224,7 @@ export class BaseAPIService {
 
           let traceId: string | undefined;
 
-          // 1. Try to get trace ID from active OTel span (if OTel SDK is initialized)
+          // Use active OTel span if available
           if (otel) {
             try {
               const currentSpan = otel.trace.getSpan(otel.context.active());
@@ -245,32 +232,29 @@ export class BaseAPIService {
                 const spanContext = currentSpan.spanContext();
                 traceId = spanContext.traceId;
 
-                // OTel SDK handles traceparent injection automatically via instrumentation
-                // But we can also inject X-Trace-ID for explicit correlation
                 if (enableTraceContext && !config.headers['X-Trace-ID']) {
                   config.headers['X-Trace-ID'] = traceId;
                 }
               }
             } catch {
-              // OTel API available but not initialized, continue with fallback
+              // OTel not initialized, continue with fallback
             }
           }
 
-          // 2. Generate W3C traceparent if enabled and not already set
+          // Generate traceparent if enabled
           if (enableTraceContext && !config.headers['traceparent']) {
             const trace = generateTraceparent();
             config.headers['traceparent'] = trace.traceparent;
             traceId = traceId ?? trace.traceId;
           }
 
-          // 3. Inject Transaction ID
+          // Inject Transaction ID
           if (!disableTransactionId && !config.headers[this.transactionIdHeader]) {
-            // Use trace ID if available and configured, otherwise generate UUID
             config.headers[this.transactionIdHeader] =
               useTraceIdAsTransactionId && traceId ? traceId : uuidv4();
           }
 
-          // 4. Inject Service Name for frontend identification in traces
+          // Inject Service Name
           if (serviceName && !config.headers['X-Source-Service']) {
             config.headers['X-Source-Service'] = serviceName;
           }
@@ -281,14 +265,14 @@ export class BaseAPIService {
       );
     }
 
-    // B. Default JSON Transform (safe parsing)
-    // Merge with user-provided transforms instead of overwriting
+    // -------------------------------------------------------------------------
+    // Response Transform: Safe JSON Parsing
+    // -------------------------------------------------------------------------
     const defaultTransform = (data: unknown) => {
       if (typeof data === 'string') {
         try {
           return JSON.parse(data);
         } catch {
-          // Return raw string if not valid JSON
           return data;
         }
       }
@@ -304,7 +288,7 @@ export class BaseAPIService {
     this.instance.defaults.transformResponse = [defaultTransform, ...userTransforms];
 
     // -------------------------------------------------------------------------
-    // APP-SPECIFIC HOOKS (Auth, i18n, Error Handling, etc.)
+    // Custom Interceptors
     // -------------------------------------------------------------------------
     if (hooks) {
       hooks(this.instance);
@@ -312,14 +296,11 @@ export class BaseAPIService {
   }
 
   // ===========================================================================
-  // HTTP METHODS
+  // HTTP Methods
   // ===========================================================================
 
   /**
-   * GET request
-   * @param url - Endpoint path
-   * @param options - Request options (params, headers, etc.)
-   * @returns Promise resolving to response data of type T
+   * Performs a GET request.
    */
   public async get<T = unknown>(url: string, options?: RequestOptions): Promise<T> {
     const response = await this.instance.get<T>(url, {
@@ -332,11 +313,7 @@ export class BaseAPIService {
   }
 
   /**
-   * POST request
-   * @param url - Endpoint path
-   * @param data - Request body
-   * @param options - Request options (params, headers, etc.)
-   * @returns Promise resolving to response data of type T
+   * Performs a POST request.
    */
   public async post<T = unknown, D = unknown>(
     url: string,
@@ -353,11 +330,7 @@ export class BaseAPIService {
   }
 
   /**
-   * PUT request
-   * @param url - Endpoint path
-   * @param data - Request body
-   * @param options - Request options (params, headers, etc.)
-   * @returns Promise resolving to response data of type T
+   * Performs a PUT request.
    */
   public async put<T = unknown, D = unknown>(
     url: string,
@@ -374,11 +347,7 @@ export class BaseAPIService {
   }
 
   /**
-   * PATCH request
-   * @param url - Endpoint path
-   * @param data - Request body
-   * @param options - Request options (params, headers, etc.)
-   * @returns Promise resolving to response data of type T
+   * Performs a PATCH request.
    */
   public async patch<T = unknown, D = unknown>(
     url: string,
@@ -395,11 +364,7 @@ export class BaseAPIService {
   }
 
   /**
-   * DELETE request
-   * @param url - Endpoint path
-   * @param data - Optional request body (some APIs require it)
-   * @param options - Request options (params, headers, etc.)
-   * @returns Promise resolving to response data of type T
+   * Performs a DELETE request.
    */
   public async delete<T = unknown, D = unknown>(
     url: string,
@@ -417,23 +382,13 @@ export class BaseAPIService {
   }
 
   /**
-   * POST file upload with multipart/form-data
-   * @param url - Endpoint path
-   * @param data - FormData or object to upload
-   * @param options - Upload options (params, headers, onUploadProgress)
-   * @returns Promise resolving to response data of type T
-   *
-   * @remarks
-   * When passing FormData, Axios automatically sets the correct Content-Type
-   * with boundary. For non-FormData objects, multipart/form-data is set explicitly.
+   * Performs a file upload with multipart/form-data.
    */
   public async postUploadFile<T = unknown>(
     url: string,
     data?: FormData | Record<string, any>,
     options?: UploadOptions
   ): Promise<T> {
-    // Let Axios handle Content-Type for FormData (includes boundary)
-    // Only force multipart/form-data for plain objects
     const headers: Record<string, string> = { ...options?.headers };
     if (data && !(data instanceof FormData)) {
       headers['Content-Type'] = 'multipart/form-data';
@@ -450,18 +405,17 @@ export class BaseAPIService {
   }
 
   // ===========================================================================
-  // UTILITY METHODS
+  // Utility Methods
   // ===========================================================================
 
   /**
-   * Create an AbortController for request cancellation
-   * @returns AbortController instance
+   * Creates an AbortController for request cancellation.
    *
    * @example
    * ```typescript
    * const controller = api.createAbortController();
-   * api.get('/slow-endpoint', { signal: controller.signal });
-   * // Later: controller.abort();
+   * api.get('/endpoint', { signal: controller.signal });
+   * controller.abort(); // Cancel the request
    * ```
    */
   public createAbortController(): AbortController {
@@ -469,31 +423,33 @@ export class BaseAPIService {
   }
 
   /**
-   * Check if an error is an Axios error
-   * @param error - Error to check
-   * @returns True if error is an AxiosError
+   * Type guard for AxiosError.
    */
   public isAxiosError(error: unknown): error is AxiosError {
     return axios.isAxiosError(error);
   }
 }
 
-// ============================================================================
-// FACTORY FUNCTION (Alternative to class instantiation)
-// ============================================================================
+// =============================================================================
+// Factory Function
+// =============================================================================
 
 /**
- * Create a BaseAPIService instance
- * @param config - Service configuration
- * @returns Configured BaseAPIService instance
+ * Creates a configured BaseAPIService instance.
  */
 export function createHttpClient(config: BaseAPIServiceConfig): BaseAPIService {
   return new BaseAPIService(config);
 }
 
-// ============================================================================
-// RE-EXPORTS (Convenience for consuming apps)
-// ============================================================================
+// =============================================================================
+// Re-exports
+// =============================================================================
 
 export { AxiosError } from 'axios';
-export type { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig, AxiosProgressEvent } from 'axios';
+export type {
+  AxiosInstance,
+  AxiosRequestConfig,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+  AxiosProgressEvent,
+} from 'axios';
