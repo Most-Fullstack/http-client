@@ -58,6 +58,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Most-Fullstack/http-client.git"
+    "url": "git+https://github.com/my-org/http-client.git"
   }
 }

@@ -5,7 +5,6 @@ Framework-agnostic HTTP client with automatic transaction tracing and dependency
 - ทุก App ใช้ `@my-org/http-client` → ส่ง Request พร้อม Transaction ID อัตโนมัติ
 - รองรับ Dependency Injection สำหรับ Auth, i18n, Error Handling
 - ใช้ได้กับทุก Framework: Vue, React, Angular, Node.js
-- รองรับ OpenTelemetry (W3C Trace Context) สำหรับ Distributed Tracing
 
 ```mermaid
 flowchart LR
@@ -51,7 +50,6 @@ flowchart LR
 | Feature | Description |
 |---------|-------------|
 | **Transaction Tracing** | Auto-inject `X-Transaction-ID` header for distributed tracing |
-| **OpenTelemetry Support** | W3C Trace Context (`traceparent`) for otelgo integration |
 | **Flexible Generics** | `Promise<T>` without enforced response shape |
 | **Dependency Injection** | Inject Auth, i18n, Error handlers via `setupHooks` |
 | **Framework Agnostic** | Works with Vue, React, Angular, Node.js |
@@ -74,9 +72,9 @@ npm install @my-org/http-client axios
 ### Basic Usage
 
 ```typescript
-import { createHttpClient } from '@my-org/http-client';
+import { BaseAPIService } from '@my-org/http-client';
 
-const api = createHttpClient({
+const api = new BaseAPIService({
   axiosConfig: {
     baseURL: 'https://api.example.com',
     timeout: 30000,
@@ -96,55 +94,22 @@ await api.put<User>('/users/1', { name: 'John Updated' });
 await api.delete('/users/1');
 ```
 
-### With OpenTelemetry (otelgo Backend)
-
-```typescript
-const api = createHttpClient({
-  axiosConfig: {
-    baseURL: '/api',
-    timeout: 30000,
-  },
-  // Enable W3C Trace Context propagation
-  enableTraceContext: true,
-  // Use trace ID as transaction ID for log correlation
-  useTraceIdAsTransactionId: true,
-  // Service name shows in Tempo traces
-  serviceName: 'INDO-FRONTEND',
-});
-```
-
----
-
-## Configuration Options
-
-```typescript
-interface BaseAPIServiceConfig {
-  axiosConfig: AxiosRequestConfig;      // Axios config (baseURL, timeout, etc.)
-  setupHooks?: InterceptorSetup;        // Inject your interceptors
-  transactionIdHeader?: string;         // Default: 'X-Transaction-ID'
-  disableTransactionId?: boolean;       // Disable auto-injection
-  enableTraceContext?: boolean;         // Enable W3C traceparent header
-  useTraceIdAsTransactionId?: boolean;  // Use trace ID for logs correlation
-  serviceName?: string;                 // Frontend name in traces
-}
-```
-
 ---
 
 ## การใช้งานกับ Vue + Pinia
 
+### services/api.ts
+
 ```typescript
-import { createHttpClient } from '@my-org/http-client';
+import { BaseAPIService } from '@my-org/http-client';
 import { useAuthStore } from '@/stores/auth';
 import router from '@/router';
 
-export const api = createHttpClient({
+export const api = new BaseAPIService({
   axiosConfig: {
     baseURL: import.meta.env.VITE_API_URL,
     timeout: 30000,
   },
-  enableTraceContext: true,
-  serviceName: 'MY-FRONTEND',
   setupHooks: (instance) => {
     // Request Interceptor: Inject Auth Token
     instance.interceptors.request.use((config) => {
@@ -171,6 +136,200 @@ export const api = createHttpClient({
 });
 ```
 
+### composables/useUsers.ts
+
+```typescript
+import { ref } from 'vue';
+import { api } from '@/services/api';
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+
+export function useUsers() {
+  const users = ref<User[]>([]);
+  const loading = ref(false);
+
+  async function fetchUsers() {
+    loading.value = true;
+    try {
+      users.value = await api.get<User[]>('/users');
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  return { users, loading, fetchUsers };
+}
+```
+
+---
+
+## การใช้งานกับ React + Zustand
+
+### services/api.ts
+
+```typescript
+import { BaseAPIService } from '@my-org/http-client';
+import { useAuthStore } from '@/stores/auth';
+
+export const api = new BaseAPIService({
+  axiosConfig: {
+    baseURL: process.env.REACT_APP_API_URL,
+    timeout: 30000,
+  },
+  setupHooks: (instance) => {
+    instance.interceptors.request.use((config) => {
+      const token = useAuthStore.getState().token;
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+  },
+});
+```
+
+### hooks/useUsers.ts (with React Query)
+
+```typescript
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { api } from '@/services/api';
+
+interface User {
+  id: number;
+  name: string;
+}
+
+export function useUsers() {
+  return useQuery({
+    queryKey: ['users'],
+    queryFn: () => api.get<User[]>('/users'),
+  });
+}
+
+export function useCreateUser() {
+  return useMutation({
+    mutationFn: (data: Omit<User, 'id'>) => api.post<User>('/users', data),
+  });
+}
+```
+
+---
+
+## Service Class Pattern
+
+### services/product.service.ts
+
+```typescript
+import { api } from './api';
+
+// Types
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+}
+
+interface ResponseMap<T> {
+  success: boolean;
+  data: T | null;
+  error: string | null;
+}
+
+// Helper functions
+function mapResponse<T>(data: T): ResponseMap<T> {
+  return { success: true, data, error: null };
+}
+
+function mapError<T>(error: unknown): ResponseMap<T> {
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  return { success: false, data: null, error: message };
+}
+
+// Service class
+class ProductService {
+  async getProducts(): Promise<ResponseMap<Product[]>> {
+    try {
+      const data = await api.get<Product[]>('/products');
+      return mapResponse(data);
+    } catch (error) {
+      return mapError(error);
+    }
+  }
+
+  async createProduct(body: Omit<Product, 'id'>): Promise<ResponseMap<Product>> {
+    try {
+      const data = await api.post<Product>('/products', body);
+      return mapResponse(data);
+    } catch (error) {
+      return mapError(error);
+    }
+  }
+}
+
+export const productService = new ProductService();
+```
+
+### Usage
+
+```typescript
+const result = await productService.getProducts();
+
+if (result.success) {
+  console.log('Products:', result.data);
+} else {
+  console.error('Error:', result.error);
+}
+```
+
+---
+
+## File Upload
+
+```typescript
+async function uploadAvatar(userId: number, file: File) {
+  const formData = new FormData();
+  formData.append('avatar', file);
+
+  return api.postUploadFile<{ url: string }>(`/users/${userId}/avatar`, formData, {
+    onUploadProgress: (event) => {
+      const percent = Math.round((event.loaded * 100) / (event.total ?? 1));
+      console.log(`Upload: ${percent}%`);
+    },
+  });
+}
+```
+
+---
+
+## Request Cancellation
+
+```typescript
+const controller = api.createAbortController();
+
+// Start request
+const promise = api.get('/slow-endpoint', { signal: controller.signal });
+
+// Cancel request
+controller.abort();
+```
+
+---
+
+## Configuration Options
+
+```typescript
+interface BaseAPIServiceConfig {
+  axiosConfig: AxiosRequestConfig;      // Axios config (baseURL, timeout, etc.)
+  setupHooks?: InterceptorSetup;        // Inject your interceptors
+  transactionIdHeader?: string;         // Default: 'X-Transaction-ID'
+  disableTransactionId?: boolean;       // Disable auto-injection
+}
+```
+
 ---
 
 ## API Reference
@@ -185,6 +344,17 @@ export const api = createHttpClient({
 | `postUploadFile` | `postUploadFile<T>(url, data?, options?): Promise<T>` | File upload |
 | `createAbortController` | `createAbortController(): AbortController` | For cancellation |
 | `isAxiosError` | `isAxiosError(error): boolean` | Type guard |
+
+### Request Options
+
+```typescript
+interface RequestOptions {
+  params?: Record<string, any>;     // Query parameters
+  headers?: Record<string, string>; // Additional headers
+  timeout?: number;                 // Override timeout
+  signal?: AbortSignal;             // For cancellation
+}
+```
 
 ---
 

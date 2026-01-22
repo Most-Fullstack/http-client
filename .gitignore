@@ -1,7 +1,30 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Test coverage
 coverage/
-*.log
+
+# Lock files (optional - some prefer to commit)
+# package-lock.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Environment
 .env
 .env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
